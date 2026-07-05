@@ -185,6 +185,12 @@
   </div>
   <div id="status"></div>
 
+  <section class="card hidden" id="diagCard">
+    <h2>🔍 לא הצלחתי לקרוא את הייצוא</h2>
+    <p class="sub" id="diagMsg"></p>
+    <div class="chips" id="diagList" style="max-height:300px; direction:ltr"></div>
+  </section>
+
   <main id="dashboard" class="hidden">
 
     <section class="card">
@@ -365,9 +371,86 @@ function mapVal(smd, ...keys) {
   return '';
 }
 
+// folders that are huge or never contain the data we need
+const SKIP_RE = /(^|\/)(messages|ads_information|apps_and_websites_off_of_instagram|logged_information|preferences|device_information|security_and_login_information)\//i;
+// filenames we always read first, regardless of folder
+const PRIMARY_NAMES = /^(followers(_\d+)?|following|posts(_\d+)?|liked_posts|stories|reels|post_comments(_\d+)?|personal_information|profile_information)\.json$/;
+function baseName(p) { return p.split('/').pop().toLowerCase(); }
+
+function addPosts(arr) {
+  for (const item of arr) {
+    const media = item.media || [];
+    const caption = item.title || (media[0] && media[0].title) || '';
+    const ts = item.creation_timestamp || (media[0] && media[0].creation_timestamp) || 0;
+    S.posts.push({ caption, ts, media: media.map(m => m.uri).filter(Boolean) });
+  }
+}
+
+// classify a JSON file by its content shape, not its path, so that
+// Instagram export layout changes don't silently break parsing
+function classify(path, data) {
+  if (!data) return;
+  const b = baseName(path);
+
+  if (data.profile_user) {
+    const pu = data.profile_user[0] || {};
+    const smd = pu.string_map_data || {};
+    S.profile.username = S.profile.username || mapVal(smd, 'Username', 'שם משתמש');
+    S.profile.name = S.profile.name || mapVal(smd, 'Name', 'שם');
+    S.profile.bio = S.profile.bio || mapVal(smd, 'Bio', 'ביוגרפיה', 'ביו');
+    const mmd = pu.media_map_data || {};
+    const photo = mmd['Profile Photo'] || mmd['Profile photo'] || Object.values(mmd)[0];
+    if (photo && photo.uri && !S.profile.photoUri) S.profile.photoUri = photo.uri;
+    return;
+  }
+  if (data.relationships_followers) { S.followers.push(...data.relationships_followers.map(relPerson).filter(Boolean)); return; }
+  if (data.relationships_following) { S.following.push(...data.relationships_following.map(relPerson).filter(Boolean)); return; }
+  if (data.likes_media_likes) { for (const it of data.likes_media_likes) if (it.title) S.likes.push(it.title); return; }
+  if (data.ig_stories) { S.storiesCount += data.ig_stories.length; return; }
+  if (data.ig_reels_media || data.ig_reels) { S.reelsCount += (data.ig_reels_media || data.ig_reels).length; return; }
+  if (data.comments_media_comments) { S.commentsCount += data.comments_media_comments.length; return; }
+  if (data.ig_posts) { addPosts(data.ig_posts); return; }
+
+  if (Array.isArray(data) && data.length) {
+    const first = data[0] || {};
+    if (Array.isArray(first.media)) { addPosts(data); return; }
+    if (first.string_list_data) {
+      if (/^following\.json$/.test(b)) S.following.push(...data.map(relPerson).filter(Boolean));
+      else if (/^followers(_\d+)?\.json$/.test(b)) S.followers.push(...data.map(relPerson).filter(Boolean));
+      return; // other relationship lists (blocked, close friends...) are ignored
+    }
+    if (first.string_map_data && Object.keys(first.string_map_data).some(k => /comment|תגובה/i.test(k))) {
+      S.commentsCount += data.length;
+    }
+  }
+}
+
+function showDiagnostics() {
+  const paths = Object.keys(entries);
+  const htmlCount = paths.filter(p => /\.html?$/i.test(p)).length;
+  const jsonCount = paths.filter(p => /\.json$/i.test(p)).length;
+  let msg;
+  if (htmlCount > 2 && !jsonCount) {
+    msg = 'הייצוא שהעלית הוא בפורמט HTML, והאתר יודע לקרוא רק פורמט JSON. תבקשו מאינסטגרם ייצוא חדש, והפעם בעמוד הבקשה בחרו Format: JSON.';
+  } else if (!jsonCount) {
+    msg = 'לא נמצאו קובצי נתונים בקובץ הזה. אם קיבלתם מאינסטגרם כמה קובצי ZIP, בחרו את כולם ביחד בהעלאה.';
+  } else {
+    msg = 'הקובץ נפתח, אבל לא זיהיתי בו פוסטים, עוקבים או לייקים. ייתכן שחסר חלק מהייצוא (העלו את כל קובצי ה-ZIP ביחד), או שאינסטגרם שינו את המבנה. אלה הקבצים שמצאתי:';
+  }
+  $('diagMsg').textContent = msg;
+  $('diagList').innerHTML = paths.slice(0, 100)
+    .map(p => '<span class="chip">' + p.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</span>').join('');
+  console.log('InstaMirror: files in export:', paths);
+  $('diagCard').classList.remove('hidden');
+  $('diagCard').scrollIntoView({ behavior: 'smooth' });
+  setStatus('לא הצלחתי לקרוא נתונים מהייצוא הזה', true);
+}
+
 async function parseAll(files) {
   entries = {};
   setStatus('');
+  $('diagCard').classList.add('hidden');
+  $('dashboard').classList.add('hidden');
   progress.show();
   progress.set(2, 'קורא את הקובץ...');
   const readSpan = 22 / files.length;
@@ -381,86 +464,28 @@ async function parseAll(files) {
   }
   if (!Object.keys(entries).length) { progress.hide(); throw new Error('הקובץ ריק או לא קובץ ZIP תקין'); }
 
-  jsonDone = 0;
-  jsonTotal = [
-    /personal_information\/personal_information\.json$/i,
-    /followers_and_following\/followers(_\d+)?\.json$/i,
-    /followers_and_following\/following\.json$/i,
-    /(?:media|content)\/posts_\d+\.json$/i,
-    /media\/stories\.json$/i,
-    /media\/reels\.json$/i,
-    /likes\/liked_posts\.json$/i,
-    /comments\/post_comments(_\d+)?\.json$/i,
-  ].reduce((n, re) => n + findPaths(re).length, 0) || 1;
-  progress.set(34, 'מנתח את הנתונים...');
   S = {
     profile: {}, followers: [], following: [], posts: [],
     likes: [], commentsCount: 0, storiesCount: 0, reelsCount: 0,
   };
 
-  // profile
-  for (const p of findPaths(/personal_information\/personal_information\.json$/i)) {
-    const data = await readJson(p);
-    const pu = (data.profile_user && data.profile_user[0]) || {};
-    const smd = pu.string_map_data || {};
-    S.profile.username = mapVal(smd, 'Username', 'שם משתמש');
-    S.profile.name = mapVal(smd, 'Name', 'שם');
-    S.profile.bio = mapVal(smd, 'Bio', 'ביוגרפיה', 'ביו');
-    const mmd = pu.media_map_data || {};
-    const photo = mmd['Profile Photo'] || mmd['Profile photo'] || Object.values(mmd)[0];
-    if (photo && photo.uri) S.profile.photoUri = photo.uri;
-  }
-
-  // followers (possibly split into followers_1.json, followers_2.json...)
-  for (const p of findPaths(/followers_and_following\/followers(_\d+)?\.json$/i)) {
-    const data = await readJson(p);
-    const arr = Array.isArray(data) ? data : (data.relationships_followers || []);
-    S.followers.push(...arr.map(relPerson).filter(Boolean));
-  }
-  // following
-  for (const p of findPaths(/followers_and_following\/following\.json$/i)) {
-    const data = await readJson(p);
-    const arr = Array.isArray(data) ? data : (data.relationships_following || []);
-    S.following.push(...arr.map(relPerson).filter(Boolean));
-  }
-
-  // posts
-  for (const p of findPaths(/(?:media|content)\/posts_\d+\.json$/i)) {
-    const data = await readJson(p);
-    const arr = Array.isArray(data) ? data : (data.ig_posts || []);
-    for (const item of arr) {
-      const media = item.media || [];
-      const caption = item.title || (media[0] && media[0].title) || '';
-      const ts = item.creation_timestamp || (media[0] && media[0].creation_timestamp) || 0;
-      S.posts.push({ caption, ts, media: media.map(m => m.uri).filter(Boolean) });
-    }
+  // scan every JSON in the export (known filenames first, then everything
+  // else capped) and classify each by content shape
+  const jsonPaths = Object.keys(entries).filter(p => /\.json$/i.test(p) && !SKIP_RE.test(p));
+  const primary = [], secondary = [];
+  for (const p of jsonPaths) (PRIMARY_NAMES.test(baseName(p)) ? primary : secondary).push(p);
+  const toScan = primary.concat(secondary.slice(0, 400));
+  jsonDone = 0;
+  jsonTotal = toScan.length || 1;
+  progress.set(34, 'מנתח את הנתונים...');
+  for (const p of toScan) {
+    try { classify(p, await readJson(p)); }
+    catch (err) { jsonDone++; console.warn('InstaMirror: skipping unreadable file', p, err); }
   }
   S.posts.sort((a, b) => b.ts - a.ts);
 
-  // stories / reels (counts only)
-  for (const p of findPaths(/media\/stories\.json$/i)) {
-    const data = await readJson(p);
-    S.storiesCount += (data.ig_stories || []).length;
-  }
-  for (const p of findPaths(/media\/reels\.json$/i)) {
-    const data = await readJson(p);
-    S.reelsCount += (data.ig_reels_media || data.ig_reels || []).length;
-  }
-
-  // liked posts
-  for (const p of findPaths(/likes\/liked_posts\.json$/i)) {
-    const data = await readJson(p);
-    for (const item of (data.likes_media_likes || [])) {
-      if (item.title) S.likes.push(item.title);
-    }
-  }
-
-  // comments
-  for (const p of findPaths(/comments\/post_comments(_\d+)?\.json$/i)) {
-    const data = await readJson(p);
-    const arr = Array.isArray(data) ? data : (data.comments_media_comments || []);
-    S.commentsCount += arr.length;
-  }
+  const hasData = S.posts.length || S.followers.length || S.following.length || S.likes.length || S.profile.username;
+  if (!hasData) { progress.hide(); showDiagnostics(); return; }
 
   computeDerived();
   progress.set(60, 'טוען תמונות...');
@@ -848,6 +873,10 @@ $('analyzeBtn').addEventListener('click', async () => {
   const errEl = $('aiErr'), out = $('aiOut'), statusEl = $('aiStatus'), btn = $('analyzeBtn');
   errEl.textContent = '';
   if (!S) { errEl.textContent = 'קודם מעלים את קובץ הייצוא למעלה'; return; }
+  if (!(S.posts.length || S.followers.length || S.following.length || S.likes.length)) {
+    errEl.textContent = 'אין נתונים לנתח: הייצוא שהועלה לא הכיל פוסטים, עוקבים או לייקים. בדקו את ההודעה למעלה.';
+    return;
+  }
   if (cfg.needsKey && !apiKey) { errEl.textContent = 'צריך להדביק מפתח API, או לבחור במסלול החינמי בלי מפתח'; return; }
   if (cfg.needsKey) localStorage.setItem('instamirror_key_' + provider, apiKey);
   localStorage.setItem('instamirror_direction', $('direction').value);

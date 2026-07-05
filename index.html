@@ -116,7 +116,7 @@
     display: flex; align-items: center; justify-content: center; font-size: 1.4rem;
   }
   .media-grid img { width: 100%; height: 100%; object-fit: cover; }
-  input[type=text], input[type=password], textarea {
+  input[type=text], input[type=password], textarea, select {
     width: 100%; background: var(--card2); border: 1px solid var(--line);
     border-radius: 12px; color: var(--text); font-family: inherit; font-size: 1rem;
     padding: 11px 14px; margin-top: 8px;
@@ -134,6 +134,17 @@
   #aiOut p { margin: 6px 0; }
   #aiOut ul, #aiOut ol { padding-inline-start: 22px; margin: 6px 0; }
   #aiErr { color: #ff6b6b; margin-top: 12px; }
+  #progressWrap { max-width: 540px; margin: 20px auto 0; }
+  .progress-top { display: flex; justify-content: space-between; color: var(--muted); font-size: .9rem; margin-bottom: 6px; }
+  #progressPct { font-weight: 800; color: var(--text); }
+  .progress-bar { height: 12px; background: var(--card2); border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+  #progressFill {
+    height: 100%; width: 0%; border-radius: 999px;
+    background: var(--grad); background-size: 200% 100%;
+    animation: shimmer 1.2s linear infinite;
+    transition: width .25s ease;
+  }
+  @keyframes shimmer { to { background-position: -200% 0; } }
   footer { text-align: center; color: var(--muted); font-size: .85rem; margin-top: 40px; }
 </style>
 </head>
@@ -168,6 +179,10 @@
     </div>
   </section>
 
+  <div id="progressWrap" class="hidden">
+    <div class="progress-top"><span id="progressStage"></span><span id="progressPct">0%</span></div>
+    <div class="progress-bar"><div id="progressFill"></div></div>
+  </div>
   <div id="status"></div>
 
   <main id="dashboard" class="hidden">
@@ -235,15 +250,25 @@
 
     <section class="card" id="aiCard">
       <h2>🤖 ניתוח AI: מי אתה באינסטגרם</h2>
-      <p class="sub">Claude יקרא את הכיתובים, הנתונים והתמונות שלך ויחזיר סיכום של התכונות שלך, מה אתה משדר, והמלצות לכיוון שתבחר.</p>
+      <p class="sub">ה-AI יקרא את הכיתובים, הנתונים והתמונות שלך ויחזיר סיכום של התכונות שלך, מה אתה משדר, והמלצות לכיוון שתבחר. אפשר בחינם לגמרי, בלי שום מפתח.</p>
 
       <label>לאן אתה רוצה להתפתח? <span class="opt">(לא חובה)</span></label>
       <textarea id="direction" placeholder="למשל: להפוך ליוצר תוכן בתחום הטיולים, למשוך לקוחות לעסק, לבנות מותג אישי מקצועי..."></textarea>
 
-      <label>מפתח Anthropic API <span class="opt">(נשמר רק בדפדפן שלך, נשלח ישירות ל-Anthropic. <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">איך משיגים מפתח</a>)</span></label>
-      <input type="password" id="apiKey" placeholder="sk-ant-...">
+      <label>מנוע ה-AI</label>
+      <select id="provider">
+        <option value="puter">🆓 חינם, בלי שום מפתח (Puter)</option>
+        <option value="gemini">Google Gemini (מפתח חינמי, בלי כרטיס אשראי)</option>
+        <option value="claude">Claude של Anthropic (מפתח בתשלום, הניתוח הכי מעמיק)</option>
+      </select>
+      <div class="sub" id="providerNote" style="margin-top:8px"></div>
 
-      <div class="check">
+      <div id="keyRow">
+        <label>מפתח API <span class="opt" id="keyHint"></span></label>
+        <input type="password" id="apiKey" placeholder="">
+      </div>
+
+      <div class="check" id="imagesRow">
         <input type="checkbox" id="includeImages" checked>
         <label for="includeImages" style="margin:0; font-weight:400">לצרף לניתוח עד 8 תמונות אחרונות מהפיד (ניתוח מדויק יותר)</label>
       </div>
@@ -289,6 +314,27 @@ function setStatus(msg, isErr = false) {
   el.classList.toggle('error', isErr);
 }
 
+const progress = {
+  show() { $('progressWrap').classList.remove('hidden'); this.set(0, ''); },
+  hide() { $('progressWrap').classList.add('hidden'); },
+  set(pct, stage) {
+    pct = Math.max(0, Math.min(100, pct));
+    $('progressFill').style.width = pct + '%';
+    $('progressPct').textContent = Math.round(pct) + '%';
+    if (stage) $('progressStage').textContent = stage;
+  },
+};
+
+function readFileWithProgress(file, base, span) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onprogress = e => { if (e.lengthComputable) progress.set(base + (e.loaded / e.total) * span, 'קורא את הקובץ...'); };
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(new Error('קריאת הקובץ נכשלה'));
+    r.readAsArrayBuffer(file);
+  });
+}
+
 /* ---------- zip parsing ---------- */
 let entries = {};   // path -> JSZip file object (merged across all uploaded zips)
 let S = null;       // parsed summary state
@@ -296,8 +342,12 @@ let S = null;       // parsed summary state
 function findPaths(regex) {
   return Object.keys(entries).filter(p => regex.test(p));
 }
+let jsonTotal = 1, jsonDone = 0;
 async function readJson(path) {
-  return deepFix(JSON.parse(await entries[path].async('string')));
+  const data = deepFix(JSON.parse(await entries[path].async('string')));
+  jsonDone++;
+  progress.set(34 + Math.min(1, jsonDone / jsonTotal) * 24, 'מנתח את הנתונים...');
+  return data;
 }
 function relPerson(item) {
   const sld = item.string_list_data && item.string_list_data[0];
@@ -317,15 +367,32 @@ function mapVal(smd, ...keys) {
 
 async function parseAll(files) {
   entries = {};
-  setStatus('פותח את הקבצים...');
-  for (const f of files) {
-    const buf = f.arrayBuffer ? await f.arrayBuffer() : f; // File or ArrayBuffer
+  setStatus('');
+  progress.show();
+  progress.set(2, 'קורא את הקובץ...');
+  const readSpan = 22 / files.length;
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    // File from disk gets real read progress; ArrayBuffer (demo) skips ahead
+    const buf = f.arrayBuffer ? await readFileWithProgress(f, 2 + i * readSpan, readSpan) : f;
+    progress.set(24 + ((i + 1) / files.length) * 10, 'פותח את הארכיון...');
     const zip = await JSZip.loadAsync(buf);
     zip.forEach((path, file) => { if (!file.dir) entries[path] = file; });
   }
-  if (!Object.keys(entries).length) throw new Error('הקובץ ריק או לא קובץ ZIP תקין');
+  if (!Object.keys(entries).length) { progress.hide(); throw new Error('הקובץ ריק או לא קובץ ZIP תקין'); }
 
-  setStatus('קורא את הנתונים...');
+  jsonDone = 0;
+  jsonTotal = [
+    /personal_information\/personal_information\.json$/i,
+    /followers_and_following\/followers(_\d+)?\.json$/i,
+    /followers_and_following\/following\.json$/i,
+    /(?:media|content)\/posts_\d+\.json$/i,
+    /media\/stories\.json$/i,
+    /media\/reels\.json$/i,
+    /likes\/liked_posts\.json$/i,
+    /comments\/post_comments(_\d+)?\.json$/i,
+  ].reduce((n, re) => n + findPaths(re).length, 0) || 1;
+  progress.set(34, 'מנתח את הנתונים...');
   S = {
     profile: {}, followers: [], following: [], posts: [],
     likes: [], commentsCount: 0, storiesCount: 0, reelsCount: 0,
@@ -396,8 +463,10 @@ async function parseAll(files) {
   }
 
   computeDerived();
+  progress.set(60, 'טוען תמונות...');
   await renderDashboard();
-  setStatus('');
+  progress.set(100, 'מוכן!');
+  setTimeout(() => progress.hide(), 700);
 }
 
 /* ---------- derived stats ---------- */
@@ -558,6 +627,7 @@ async function renderDashboard() {
       ph.textContent = '🖼️';
     }
     grid.appendChild(ph);
+    progress.set(60 + Math.min(1, grid.children.length / 12) * 38, 'טוען תמונות...');
   }
   if (!grid.children.length) grid.innerHTML = '<span class="sub">לא נמצאו תמונות בייצוא</span>';
   $('contentCard').classList.toggle('hidden', !S.posts.length);
@@ -586,7 +656,7 @@ dz.addEventListener('drop', e => {
 async function handleFiles(files) {
   if (!files.length) { setStatus('לא נבחר קובץ ZIP', true); return; }
   try { await parseAll(files); }
-  catch (err) { console.error(err); setStatus('שגיאה בקריאת הקובץ: ' + err.message, true); }
+  catch (err) { console.error(err); progress.hide(); setStatus('שגיאה בקריאת הקובץ: ' + err.message, true); }
 }
 
 $('demoBtn').addEventListener('click', async () => {
@@ -595,11 +665,45 @@ $('demoBtn').addEventListener('click', async () => {
     const res = await fetch('fixture/sample-export.zip');
     if (!res.ok) throw new Error('קובץ הדוגמה לא נמצא');
     await parseAll([await res.arrayBuffer()]);
-  } catch (err) { console.error(err); setStatus('שגיאה: ' + err.message, true); }
+  } catch (err) { console.error(err); progress.hide(); setStatus('שגיאה: ' + err.message, true); }
 });
 
 /* ---------- AI analysis ---------- */
-$('apiKey').value = localStorage.getItem('instamirror_api_key') || '';
+const PROVIDERS = {
+  puter: {
+    needsKey: false, images: false,
+    note: 'בלי מפתח ובלי תשלום: הניתוח רץ דרך Puter. בשימוש הראשון יקפוץ חלון הרשמה קצר וחינמי. במסלול הזה נשלח רק טקסט, בלי תמונות.',
+  },
+  gemini: {
+    needsKey: true, images: true, ph: 'AIza...',
+    hint: '(<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">מפתח חינמי תוך חצי דקה</a>, בלי כרטיס אשראי. נשמר רק בדפדפן שלך)',
+  },
+  claude: {
+    needsKey: true, images: true, ph: 'sk-ant-...',
+    hint: '(<a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">יצירת מפתח</a>. נשמר רק בדפדפן שלך, נשלח ישירות ל-Anthropic)',
+  },
+};
+
+// migrate the old single-key storage slot to the per-provider slot
+if (!localStorage.getItem('instamirror_key_claude') && localStorage.getItem('instamirror_api_key')) {
+  localStorage.setItem('instamirror_key_claude', localStorage.getItem('instamirror_api_key'));
+}
+
+function providerChanged(save = true) {
+  const p = $('provider').value, cfg = PROVIDERS[p];
+  $('keyRow').classList.toggle('hidden', !cfg.needsKey);
+  $('imagesRow').classList.toggle('hidden', !cfg.images);
+  $('providerNote').textContent = cfg.note || '';
+  if (cfg.needsKey) {
+    $('keyHint').innerHTML = cfg.hint;
+    $('apiKey').placeholder = cfg.ph;
+    $('apiKey').value = localStorage.getItem('instamirror_key_' + p) || '';
+  }
+  if (save) localStorage.setItem('instamirror_provider', p);
+}
+$('provider').addEventListener('change', () => providerChanged());
+$('provider').value = localStorage.getItem('instamirror_provider') || 'puter';
+providerChanged(false);
 $('direction').value = localStorage.getItem('instamirror_direction') || '';
 
 const SYSTEM_PROMPT = `אתה יועץ מותג אישי חד, מנוסה וישיר. אתה מקבל נתונים מלאים מחשבון אינסטגרם של המשתמש: ביו, כיתובי פוסטים, האשטגים, נתוני עוקבים, שעות פרסום, החשבונות שהוא הכי אוהב, ולפעמים גם תמונות מהפיד.
@@ -681,55 +785,119 @@ function renderMd(src) {
   return html;
 }
 
+async function runPuter(text, onText, onReset) {
+  if (!window.puter) {
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://js.puter.com/v2/';
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('טעינת Puter נכשלה, בדקו את החיבור לאינטרנט'));
+      document.head.appendChild(s);
+    });
+  }
+  const prompt = SYSTEM_PROMPT + '\n\n---\n\n' + text;
+  const attempts = [{ model: 'claude-sonnet-4' }, { model: 'gpt-4o-mini' }, {}];
+  let lastErr = null;
+  for (const opts of attempts) {
+    onReset();
+    try {
+      const resp = await puter.ai.chat(prompt, { ...opts, stream: true });
+      let got = false;
+      for await (const part of resp) {
+        const t = (part && part.text) || '';
+        if (t) { got = true; onText(t); }
+      }
+      if (got) return;
+    } catch (e) { lastErr = e; }
+  }
+  const msg = (lastErr && ((lastErr.error && lastErr.error.message) || lastErr.message)) || 'שגיאה לא ידועה';
+  throw new Error('המסלול החינמי נכשל (' + msg + '). נסו שוב, או עברו ל-Gemini עם מפתח חינמי.');
+}
+
+async function runGemini(apiKey, text, images) {
+  const parts = [{ text }];
+  for (const data of images) parts.push({ inline_data: { mime_type: 'image/jpeg', data } });
+  const body = JSON.stringify({
+    system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+    contents: [{ role: 'user', parts }],
+  });
+  let lastErr = 'לא נמצא מודל Gemini זמין';
+  for (const model of ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']) {
+    const res = await fetch(
+      'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(apiKey),
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body },
+    );
+    if (res.status === 404) continue;
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      lastErr = (j.error && j.error.message) || ('HTTP ' + res.status);
+      if (res.status === 400 || res.status === 403) break; // bad key: other models won't help
+      continue;
+    }
+    const out = ((j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts) || [])
+      .map(p => p.text || '').join('');
+    if (out) return out;
+    lastErr = 'תשובה ריקה מהמודל';
+  }
+  throw new Error(lastErr);
+}
+
 $('analyzeBtn').addEventListener('click', async () => {
-  const apiKey = $('apiKey').value.trim();
+  const provider = $('provider').value, cfg = PROVIDERS[provider];
+  const apiKey = cfg.needsKey ? $('apiKey').value.trim() : '';
   const errEl = $('aiErr'), out = $('aiOut'), statusEl = $('aiStatus'), btn = $('analyzeBtn');
   errEl.textContent = '';
   if (!S) { errEl.textContent = 'קודם מעלים את קובץ הייצוא למעלה'; return; }
-  if (!apiKey) { errEl.textContent = 'צריך מפתח API של Anthropic כדי להריץ את הניתוח'; return; }
-  localStorage.setItem('instamirror_api_key', apiKey);
+  if (cfg.needsKey && !apiKey) { errEl.textContent = 'צריך להדביק מפתח API, או לבחור במסלול החינמי בלי מפתח'; return; }
+  if (cfg.needsKey) localStorage.setItem('instamirror_key_' + provider, apiKey);
   localStorage.setItem('instamirror_direction', $('direction').value);
 
   btn.disabled = true;
   out.classList.remove('hidden');
   out.innerHTML = '';
+  let md = '';
+  const onText = t => { md += t; out.innerHTML = renderMd(md); };
+  const onReset = () => { md = ''; out.innerHTML = ''; };
 
   try {
     statusEl.textContent = 'מכין את הנתונים...';
-    const content = [];
-    if ($('includeImages').checked && (S.imageBlobUrls || []).length) {
+    const images = [];
+    if (cfg.images && $('includeImages').checked && (S.imageBlobUrls || []).length) {
       for (const url of S.imageBlobUrls.slice(0, 8)) {
-        try {
-          content.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: await resizedBase64(url) } });
-        } catch { /* skip broken image */ }
+        try { images.push(await resizedBase64(url)); } catch { /* skip broken image */ }
       }
     }
-    content.push({ type: 'text', text: buildAnalysisText() });
+    const text = buildAnalysisText();
 
-    statusEl.textContent = 'Claude חושב עליך...';
-    const { default: Anthropic } = await import('https://esm.run/@anthropic-ai/sdk');
-    const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
-
-    let md = '';
-    const stream = client.messages.stream({
-      model: 'claude-opus-4-8',
-      max_tokens: 8000,
-      thinking: { type: 'adaptive' },
-      system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content }],
-    });
-    stream.on('text', t => { md += t; out.innerHTML = renderMd(md); });
-    const finalMsg = await stream.finalMessage();
-    if (finalMsg.stop_reason === 'refusal') {
-      errEl.textContent = 'הבקשה נדחתה על ידי מסנני הבטיחות. נסו שוב בלי תמונות.';
+    statusEl.textContent = 'ה-AI חושב עליך... (יכול לקחת עד דקה)';
+    if (provider === 'puter') {
+      await runPuter(text, onText, onReset);
+    } else if (provider === 'gemini') {
+      onText(await runGemini(apiKey, text, images));
+    } else {
+      const content = images.map(data => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } }));
+      content.push({ type: 'text', text });
+      const { default: Anthropic } = await import('https://esm.run/@anthropic-ai/sdk');
+      const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
+      const stream = client.messages.stream({
+        model: 'claude-opus-4-8',
+        max_tokens: 8000,
+        thinking: { type: 'adaptive' },
+        system: SYSTEM_PROMPT,
+        messages: [{ role: 'user', content }],
+      });
+      stream.on('text', onText);
+      const finalMsg = await stream.finalMessage();
+      if (finalMsg.stop_reason === 'refusal') {
+        errEl.textContent = 'הבקשה נדחתה על ידי מסנני הבטיחות. נסו שוב בלי תמונות.';
+      }
     }
     statusEl.textContent = '';
   } catch (err) {
     console.error(err);
     statusEl.textContent = '';
-    if (err && err.status === 401) errEl.textContent = 'מפתח ה-API לא תקין. בדקו אותו ב-console.anthropic.com';
+    if (err && err.status === 401) errEl.textContent = 'מפתח ה-API לא תקין. בדקו אותו ונסו שוב.';
     else if (err && err.status === 429) errEl.textContent = 'יותר מדי בקשות. חכו רגע ונסו שוב.';
-    else if (err && err.status === 400) errEl.textContent = 'שגיאה בבקשה: ' + err.message;
     else errEl.textContent = 'שגיאה: ' + (err.message || err);
   } finally {
     btn.disabled = false;

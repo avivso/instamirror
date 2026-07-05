@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>InstaMirror - המראה של האינסטגרם שלך</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;600;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root {
+    --bg: #0d0d14;
+    --card: #17171f;
+    --card2: #1e1e29;
+    --text: #f0eef4;
+    --muted: #9a97a8;
+    --line: #2a2a38;
+    --grad: linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Heebo', sans-serif;
+    min-height: 100vh;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 1020px; margin: 0 auto; padding: 24px 20px 80px; }
+  header { text-align: center; padding: 36px 0 20px; }
+  .logo {
+    font-size: 2.6rem; font-weight: 800;
+    background: var(--grad);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    display: inline-block;
+  }
+  .tagline { color: var(--muted); font-size: 1.1rem; margin-top: 4px; }
+  .privacy-chip {
+    display: inline-block; margin-top: 14px; padding: 6px 14px;
+    border: 1px solid var(--line); border-radius: 999px;
+    color: var(--muted); font-size: .85rem; background: var(--card);
+  }
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 18px; padding: 24px; margin-top: 22px;
+  }
+  .card h2 { font-size: 1.25rem; margin-bottom: 12px; }
+  .card h2 .num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; border-radius: 50%;
+    background: var(--grad); color: #fff; font-size: .95rem; margin-inline-end: 8px;
+  }
+  ol.steps { padding-inline-start: 22px; color: var(--muted); }
+  ol.steps li { margin-bottom: 6px; }
+  ol.steps b { color: var(--text); }
+  a { color: #e6683c; }
+  .dropzone {
+    margin-top: 18px; border: 2px dashed var(--line); border-radius: 16px;
+    padding: 38px 20px; text-align: center; cursor: pointer;
+    transition: border-color .2s, background .2s;
+  }
+  .dropzone:hover, .dropzone.drag { border-color: #cc2366; background: var(--card2); }
+  .dropzone .big { font-size: 2.2rem; }
+  .btn {
+    display: inline-block; border: none; cursor: pointer;
+    background: var(--grad); color: #fff; font-family: inherit;
+    font-size: 1rem; font-weight: 600; padding: 11px 26px; border-radius: 12px;
+  }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn.ghost { background: var(--card2); border: 1px solid var(--line); color: var(--text); }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  #status { margin-top: 16px; color: var(--muted); min-height: 24px; text-align: center; }
+  #status.error { color: #ff6b6b; }
+  .hidden { display: none !important; }
+
+  /* dashboard */
+  .profile { display: flex; gap: 18px; align-items: center; }
+  .avatar {
+    width: 84px; height: 84px; border-radius: 50%; flex-shrink: 0;
+    background: var(--grad); display: flex; align-items: center; justify-content: center;
+    font-size: 2rem; font-weight: 800; color: #fff; overflow: hidden;
+  }
+  .avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .profile .name { font-size: 1.4rem; font-weight: 800; }
+  .profile .user { color: var(--muted); }
+  .profile .bio { margin-top: 6px; white-space: pre-wrap; }
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-top: 6px; }
+  .stat {
+    background: var(--card2); border: 1px solid var(--line); border-radius: 14px;
+    padding: 14px; text-align: center;
+  }
+  .stat .v { font-size: 1.6rem; font-weight: 800; }
+  .stat .l { color: var(--muted); font-size: .85rem; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 700px) { .two-col { grid-template-columns: 1fr; } }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; max-height: 220px; overflow-y: auto; }
+  .chip {
+    background: var(--card2); border: 1px solid var(--line); border-radius: 999px;
+    padding: 4px 12px; font-size: .88rem; color: var(--text); text-decoration: none;
+  }
+  .chip:hover { border-color: #cc2366; }
+  .chip.hot { border-color: #e6683c; }
+  .sub { color: var(--muted); font-size: .9rem; }
+  .bars { display: flex; align-items: flex-end; gap: 10px; height: 130px; margin-top: 14px; }
+  .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; justify-content: flex-end; }
+  .bar { width: 100%; max-width: 46px; background: var(--grad); border-radius: 6px 6px 0 0; min-height: 3px; }
+  .bar-col .bl { color: var(--muted); font-size: .78rem; }
+  .bar-col .bv { font-size: .8rem; }
+  .hours { display: flex; align-items: flex-end; gap: 3px; height: 70px; margin-top: 12px; direction: ltr; }
+  .hour-b { flex: 1; background: #4a4a5e; border-radius: 3px 3px 0 0; min-height: 2px; position: relative; }
+  .hour-b.top { background: var(--grad); }
+  .hour-labels { display: flex; gap: 3px; direction: ltr; margin-top: 4px; }
+  .hour-labels span { flex: 1; text-align: center; font-size: .65rem; color: var(--muted); }
+  .media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; margin-top: 14px; }
+  .media-grid .ph {
+    aspect-ratio: 1; border-radius: 10px; overflow: hidden; background: var(--card2);
+    display: flex; align-items: center; justify-content: center; font-size: 1.4rem;
+  }
+  .media-grid img { width: 100%; height: 100%; object-fit: cover; }
+  input[type=text], input[type=password], textarea {
+    width: 100%; background: var(--card2); border: 1px solid var(--line);
+    border-radius: 12px; color: var(--text); font-family: inherit; font-size: 1rem;
+    padding: 11px 14px; margin-top: 8px;
+  }
+  textarea { resize: vertical; min-height: 70px; }
+  label { display: block; margin-top: 14px; font-weight: 600; }
+  label .opt { color: var(--muted); font-weight: 400; font-size: .85rem; }
+  .check { display: flex; align-items: center; gap: 8px; margin-top: 14px; color: var(--muted); }
+  #aiOut { margin-top: 20px; border-top: 1px solid var(--line); padding-top: 16px; }
+  #aiOut h3, #aiOut h4 { margin: 18px 0 6px; }
+  #aiOut h3 {
+    background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent;
+    display: inline-block;
+  }
+  #aiOut p { margin: 6px 0; }
+  #aiOut ul, #aiOut ol { padding-inline-start: 22px; margin: 6px 0; }
+  #aiErr { color: #ff6b6b; margin-top: 12px; }
+  footer { text-align: center; color: var(--muted); font-size: .85rem; margin-top: 40px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo">InstaMirror 🪞</div>
+    <div class="tagline">מי אתה באינסטגרם, מה אתה משדר, ולאן אפשר לקחת את זה</div>
+    <div class="privacy-chip">🔒 הכל רץ בדפדפן שלך. שום קובץ לא עולה לשום שרת.</div>
+  </header>
+
+  <section class="card" id="setupCard">
+    <h2><span class="num">1</span>מורידים את המידע מאינסטגרם</h2>
+    <ol class="steps">
+      <li>נכנסים אל <a href="https://accountscenter.instagram.com/info_and_permissions/dyi/" target="_blank" rel="noopener">הורדת המידע שלך במרכז החשבונות</a> (או באפליקציה: הגדרות ← מרכז החשבונות ← המידע וההרשאות שלך ← הורדת המידע שלך).</li>
+      <li>בוחרים <b>הורדה או העברה של מידע</b> ← החשבון שלך ← <b>חלק מהמידע</b>.</li>
+      <li>מסמנים לפחות: <b>פוסטים</b>, <b>עוקבים ונעקבים</b>, <b>לייקים</b>, <b>תגובות</b>, <b>פרטים אישיים</b> (או פשוט "כל המידע").</li>
+      <li>חשוב: פורמט <b>JSON</b> (לא HTML). איכות מדיה בינונית מספיקה.</li>
+      <li>כשמגיע המייל מאינסטגרם, מורידים את קובץ ה-ZIP ומעלים אותו כאן. אין צורך לחלץ אותו.</li>
+    </ol>
+
+    <h2 style="margin-top:22px"><span class="num">2</span>מעלים את הקובץ</h2>
+    <div class="dropzone" id="dropzone">
+      <div class="big">📦</div>
+      <div>גוררים לכאן את קובץ ה-ZIP, או לוחצים לבחירה</div>
+      <div class="sub">אפשר לבחור כמה קבצים אם הייצוא פוצל</div>
+      <input type="file" id="fileInput" accept=".zip" multiple class="hidden">
+    </div>
+    <div class="row" style="margin-top:14px; justify-content:center">
+      <button class="btn ghost" id="demoBtn">🎬 נסו עם חשבון לדוגמה</button>
+    </div>
+  </section>
+
+  <div id="status"></div>
+
+  <main id="dashboard" class="hidden">
+
+    <section class="card">
+      <div class="profile">
+        <div class="avatar" id="avatar">🪞</div>
+        <div>
+          <div class="name" id="pName"></div>
+          <div class="user" id="pUser"></div>
+          <div class="bio" id="pBio"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>📊 המספרים שלך</h2>
+      <div class="stat-grid" id="statGrid"></div>
+    </section>
+
+    <section class="card" id="followCard">
+      <h2>👥 עוקבים ונעקבים</h2>
+      <div class="two-col">
+        <div>
+          <b>לא עוקבים בחזרה</b> <span class="sub">(אתה עוקב, הם לא)</span>
+          <div class="chips" id="notBackList"></div>
+        </div>
+        <div>
+          <b>מעריצים</b> <span class="sub">(עוקבים אחריך, אתה לא בחזרה)</span>
+          <div class="chips" id="fansList"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" id="activityCard">
+      <h2>🕒 מתי אתה מפרסם</h2>
+      <div class="two-col">
+        <div>
+          <b>פוסטים לפי שנה</b>
+          <div class="bars" id="yearBars"></div>
+        </div>
+        <div>
+          <b>שעות פרסום</b> <span class="sub">(שעון מקומי)</span>
+          <div class="hours" id="hourBars"></div>
+          <div class="hour-labels"><span>0</span><span>6</span><span>12</span><span>18</span><span>23</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" id="contentCard">
+      <h2>✍️ התוכן שלך</h2>
+      <div id="capStats" class="sub"></div>
+      <div style="margin-top:12px"><b>ההאשטגים שלך</b></div>
+      <div class="chips" id="hashtagList"></div>
+      <div style="margin-top:16px"><b>המילים שחוזרות אצלך</b></div>
+      <div class="chips" id="wordList"></div>
+      <div style="margin-top:16px"><b>מהפיד שלך</b></div>
+      <div class="media-grid" id="mediaGrid"></div>
+    </section>
+
+    <section class="card" id="likesCard">
+      <h2>❤️ למי אתה מחלק לייקים</h2>
+      <div class="chips" id="likedList"></div>
+    </section>
+
+    <section class="card" id="aiCard">
+      <h2>🤖 ניתוח AI: מי אתה באינסטגרם</h2>
+      <p class="sub">Claude יקרא את הכיתובים, הנתונים והתמונות שלך ויחזיר סיכום של התכונות שלך, מה אתה משדר, והמלצות לכיוון שתבחר.</p>
+
+      <label>לאן אתה רוצה להתפתח? <span class="opt">(לא חובה)</span></label>
+      <textarea id="direction" placeholder="למשל: להפוך ליוצר תוכן בתחום הטיולים, למשוך לקוחות לעסק, לבנות מותג אישי מקצועי..."></textarea>
+
+      <label>מפתח Anthropic API <span class="opt">(נשמר רק בדפדפן שלך, נשלח ישירות ל-Anthropic. <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">איך משיגים מפתח</a>)</span></label>
+      <input type="password" id="apiKey" placeholder="sk-ant-...">
+
+      <div class="check">
+        <input type="checkbox" id="includeImages" checked>
+        <label for="includeImages" style="margin:0; font-weight:400">לצרף לניתוח עד 8 תמונות אחרונות מהפיד (ניתוח מדויק יותר)</label>
+      </div>
+
+      <div class="row" style="margin-top:18px">
+        <button class="btn" id="analyzeBtn">✨ נתח אותי</button>
+        <span class="sub" id="aiStatus"></span>
+      </div>
+      <div id="aiErr"></div>
+      <div id="aiOut" class="hidden"></div>
+    </section>
+
+  </main>
+
+  <footer>
+    InstaMirror · כל הנתונים נשארים אצלך במחשב · קוד פתוח
+  </footer>
+</div>
+
+<script>
+/* ---------- utilities ---------- */
+const $ = id => document.getElementById(id);
+const fmt = n => (n ?? 0).toLocaleString('he-IL');
+
+// Instagram exports escape UTF-8 bytes as \u00XX sequences; re-decode as UTF-8
+function fixText(s) {
+  try { return decodeURIComponent(escape(s)); } catch { return s; }
+}
+function deepFix(o) {
+  if (typeof o === 'string') return fixText(o);
+  if (Array.isArray(o)) return o.map(deepFix);
+  if (o && typeof o === 'object') {
+    const r = {};
+    for (const k of Object.keys(o)) r[fixText(k)] = deepFix(o[k]);
+    return r;
+  }
+  return o;
+}
+
+function setStatus(msg, isErr = false) {
+  const el = $('status');
+  el.textContent = msg;
+  el.classList.toggle('error', isErr);
+}
+
+/* ---------- zip parsing ---------- */
+let entries = {};   // path -> JSZip file object (merged across all uploaded zips)
+let S = null;       // parsed summary state
+
+function findPaths(regex) {
+  return Object.keys(entries).filter(p => regex.test(p));
+}
+async function readJson(path) {
+  return deepFix(JSON.parse(await entries[path].async('string')));
+}
+function relPerson(item) {
+  const sld = item.string_list_data && item.string_list_data[0];
+  const username = (sld && sld.value) || item.title || '';
+  if (!username) return null;
+  return {
+    username,
+    href: (sld && sld.href) || 'https://www.instagram.com/' + username,
+    ts: (sld && sld.timestamp) || 0,
+  };
+}
+function mapVal(smd, ...keys) {
+  if (!smd) return '';
+  for (const k of keys) if (smd[k] && smd[k].value) return smd[k].value;
+  return '';
+}
+
+async function parseAll(files) {
+  entries = {};
+  setStatus('פותח את הקבצים...');
+  for (const f of files) {
+    const buf = f.arrayBuffer ? await f.arrayBuffer() : f; // File or ArrayBuffer
+    const zip = await JSZip.loadAsync(buf);
+    zip.forEach((path, file) => { if (!file.dir) entries[path] = file; });
+  }
+  if (!Object.keys(entries).length) throw new Error('הקובץ ריק או לא קובץ ZIP תקין');
+
+  setStatus('קורא את הנתונים...');
+  S = {
+    profile: {}, followers: [], following: [], posts: [],
+    likes: [], commentsCount: 0, storiesCount: 0, reelsCount: 0,
+  };
+
+  // profile
+  for (const p of findPaths(/personal_information\/personal_information\.json$/i)) {
+    const data = await readJson(p);
+    const pu = (data.profile_user && data.profile_user[0]) || {};
+    const smd = pu.string_map_data || {};
+    S.profile.username = mapVal(smd, 'Username', 'שם משתמש');
+    S.profile.name = mapVal(smd, 'Name', 'שם');
+    S.profile.bio = mapVal(smd, 'Bio', 'ביוגרפיה', 'ביו');
+    const mmd = pu.media_map_data || {};
+    const photo = mmd['Profile Photo'] || mmd['Profile photo'] || Object.values(mmd)[0];
+    if (photo && photo.uri) S.profile.photoUri = photo.uri;
+  }
+
+  // followers (possibly split into followers_1.json, followers_2.json...)
+  for (const p of findPaths(/followers_and_following\/followers(_\d+)?\.json$/i)) {
+    const data = await readJson(p);
+    const arr = Array.isArray(data) ? data : (data.relationships_followers || []);
+    S.followers.push(...arr.map(relPerson).filter(Boolean));
+  }
+  // following
+  for (const p of findPaths(/followers_and_following\/following\.json$/i)) {
+    const data = await readJson(p);
+    const arr = Array.isArray(data) ? data : (data.relationships_following || []);
+    S.following.push(...arr.map(relPerson).filter(Boolean));
+  }
+
+  // posts
+  for (const p of findPaths(/(?:media|content)\/posts_\d+\.json$/i)) {
+    const data = await readJson(p);
+    const arr = Array.isArray(data) ? data : (data.ig_posts || []);
+    for (const item of arr) {
+      const media = item.media || [];
+      const caption = item.title || (media[0] && media[0].title) || '';
+      const ts = item.creation_timestamp || (media[0] && media[0].creation_timestamp) || 0;
+      S.posts.push({ caption, ts, media: media.map(m => m.uri).filter(Boolean) });
+    }
+  }
+  S.posts.sort((a, b) => b.ts - a.ts);
+
+  // stories / reels (counts only)
+  for (const p of findPaths(/media\/stories\.json$/i)) {
+    const data = await readJson(p);
+    S.storiesCount += (data.ig_stories || []).length;
+  }
+  for (const p of findPaths(/media\/reels\.json$/i)) {
+    const data = await readJson(p);
+    S.reelsCount += (data.ig_reels_media || data.ig_reels || []).length;
+  }
+
+  // liked posts
+  for (const p of findPaths(/likes\/liked_posts\.json$/i)) {
+    const data = await readJson(p);
+    for (const item of (data.likes_media_likes || [])) {
+      if (item.title) S.likes.push(item.title);
+    }
+  }
+
+  // comments
+  for (const p of findPaths(/comments\/post_comments(_\d+)?\.json$/i)) {
+    const data = await readJson(p);
+    const arr = Array.isArray(data) ? data : (data.comments_media_comments || []);
+    S.commentsCount += arr.length;
+  }
+
+  computeDerived();
+  await renderDashboard();
+  setStatus('');
+}
+
+/* ---------- derived stats ---------- */
+function computeDerived() {
+  const lower = u => u.toLowerCase();
+  const followerSet = new Set(S.followers.map(f => lower(f.username)));
+  const followingSet = new Set(S.following.map(f => lower(f.username)));
+  S.notBack = S.following.filter(f => !followerSet.has(lower(f.username)));
+  S.fans = S.followers.filter(f => !followingSet.has(lower(f.username)));
+  S.mutualCount = S.following.length - S.notBack.length;
+
+  // hashtags + words
+  const tagCount = {}, wordCount = {};
+  const stop = new Set(['של','את','על','עם','זה','זו','זאת','לא','אני','אתה','הוא','היא','אנחנו','אתם','הם','מה','יש','אין','גם','כל','אבל','או','אם','כי','רק','עוד','כבר','היה','הזה','אז','שלי','שלך','שלו','שלה','שלנו','לי','לך','לו','לה','כמו','יותר','פה','שם','הכי','ממש','כך','ככה','אחד','אחת','אל','עד','בין','אחרי','לפני','בלי','להיות','היום','אצל','מול','וגם','the','a','an','and','of','to','in','is','it','my','me','for','on','with','at','this','that','was','are','be','you','so','we','our']);
+  let totalLen = 0, withCaption = 0;
+  for (const post of S.posts) {
+    const cap = post.caption || '';
+    if (cap.trim()) { withCaption++; totalLen += cap.length; }
+    for (const tag of cap.match(/#[\p{L}\p{N}_]+/gu) || []) {
+      tagCount[tag] = (tagCount[tag] || 0) + 1;
+    }
+    const clean = cap.replace(/#[\p{L}\p{N}_]+/gu, ' ').replace(/@[\w.]+/g, ' ').replace(/https?:\S+/g, ' ');
+    for (const w of clean.split(/[^\p{L}]+/u)) {
+      const word = w.trim();
+      if (word.length < 2 || stop.has(word.toLowerCase())) continue;
+      wordCount[word] = (wordCount[word] || 0) + 1;
+    }
+  }
+  const top = (obj, n) => Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, n);
+  S.topTags = top(tagCount, 15);
+  S.topWords = top(wordCount, 15).filter(([, c]) => c > 1);
+  S.avgCaption = withCaption ? Math.round(totalLen / withCaption) : 0;
+
+  const likeCount = {};
+  for (const u of S.likes) likeCount[u] = (likeCount[u] || 0) + 1;
+  S.topLiked = top(likeCount, 15);
+
+  // activity
+  S.byYear = {}; S.byHour = new Array(24).fill(0);
+  for (const post of S.posts) {
+    if (!post.ts) continue;
+    const d = new Date(post.ts * 1000);
+    S.byYear[d.getFullYear()] = (S.byYear[d.getFullYear()] || 0) + 1;
+    S.byHour[d.getHours()]++;
+  }
+}
+
+/* ---------- media loading ---------- */
+function findMediaEntry(uri) {
+  if (entries[uri]) return entries[uri];
+  const suffix = '/' + uri.replace(/^\//, '');
+  const key = Object.keys(entries).find(p => p.endsWith(suffix));
+  return key ? entries[key] : null;
+}
+const IMG_RE = /\.(jpe?g|png|webp|gif)$/i;
+async function mediaBlobUrl(uri) {
+  const entry = findMediaEntry(uri);
+  if (!entry) return null;
+  const ext = uri.split('.').pop().toLowerCase();
+  const type = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : ext === 'gif' ? 'image/gif' : 'image/jpeg';
+  const blob = new Blob([await entry.async('arraybuffer')], { type });
+  return URL.createObjectURL(blob);
+}
+
+/* ---------- rendering ---------- */
+function chip(person) {
+  const a = document.createElement('a');
+  a.className = 'chip';
+  a.href = 'https://www.instagram.com/' + person.username;
+  a.target = '_blank'; a.rel = 'noopener';
+  a.textContent = person.username;
+  return a;
+}
+function fillChips(el, people, max = 100) {
+  el.innerHTML = '';
+  if (!people.length) { el.innerHTML = '<span class="sub">אין 🎉</span>'; return; }
+  people.slice(0, max).forEach(p => el.appendChild(chip(p)));
+  if (people.length > max) {
+    const more = document.createElement('span');
+    more.className = 'sub';
+    more.textContent = 'ועוד ' + fmt(people.length - max);
+    el.appendChild(more);
+  }
+}
+
+async function renderDashboard() {
+  // profile
+  $('pName').textContent = S.profile.name || '';
+  $('pUser').textContent = S.profile.username ? '@' + S.profile.username : '';
+  $('pBio').textContent = S.profile.bio || '';
+  if (S.profile.photoUri) {
+    const url = await mediaBlobUrl(S.profile.photoUri);
+    if (url) $('avatar').innerHTML = '<img src="' + url + '" alt="">';
+  }
+
+  // stats
+  const stats = [
+    ['פוסטים', S.posts.length],
+    ['עוקבים', S.followers.length],
+    ['עוקב אחרי', S.following.length],
+    ['הדדיים', S.mutualCount],
+    ['סטוריז', S.storiesCount],
+    ['רילז', S.reelsCount],
+    ['לייקים שנתת', S.likes.length],
+    ['תגובות שכתבת', S.commentsCount],
+  ].filter(([l, v]) => v > 0 || ['פוסטים', 'עוקבים', 'עוקב אחרי'].includes(l));
+  $('statGrid').innerHTML = stats
+    .map(([l, v]) => `<div class="stat"><div class="v">${fmt(v)}</div><div class="l">${l}</div></div>`)
+    .join('');
+
+  // follower lists
+  fillChips($('notBackList'), S.notBack);
+  fillChips($('fansList'), S.fans);
+  $('followCard').classList.toggle('hidden', !S.followers.length && !S.following.length);
+
+  // activity charts
+  const years = Object.keys(S.byYear).sort();
+  const maxY = Math.max(1, ...Object.values(S.byYear));
+  $('yearBars').innerHTML = years.map(y =>
+    `<div class="bar-col"><div class="bv">${S.byYear[y]}</div><div class="bar" style="height:${Math.max(4, S.byYear[y] / maxY * 90)}%"></div><div class="bl">${y}</div></div>`
+  ).join('');
+  const maxH = Math.max(1, ...S.byHour);
+  const topHour = S.byHour.indexOf(maxH);
+  $('hourBars').innerHTML = S.byHour.map((c, h) =>
+    `<div class="hour-b${h === topHour && c ? ' top' : ''}" style="height:${Math.max(3, c / maxH * 100)}%" title="${h}:00 - ${c} פוסטים"></div>`
+  ).join('');
+  $('activityCard').classList.toggle('hidden', !S.posts.length);
+
+  // content
+  $('capStats').textContent = S.posts.length
+    ? `אורך כיתוב ממוצע: ${fmt(S.avgCaption)} תווים`
+    : '';
+  $('hashtagList').innerHTML = S.topTags.length
+    ? S.topTags.map(([t, c]) => `<span class="chip${c > 2 ? ' hot' : ''}">${t} · ${c}</span>`).join('')
+    : '<span class="sub">לא נמצאו האשטגים</span>';
+  $('wordList').innerHTML = S.topWords.length
+    ? S.topWords.map(([w, c]) => `<span class="chip">${w} · ${c}</span>`).join('')
+    : '<span class="sub">אין מספיק טקסט</span>';
+
+  // media grid: latest 12 image posts
+  const grid = $('mediaGrid');
+  grid.innerHTML = '';
+  S.imageBlobUrls = [];
+  for (const post of S.posts.slice(0, 24)) {
+    if (S.imageBlobUrls.length >= 12) break;
+    const uri = post.media.find(u => IMG_RE.test(u));
+    if (!uri) continue;
+    const url = await mediaBlobUrl(uri);
+    const ph = document.createElement('div');
+    ph.className = 'ph';
+    if (url) {
+      S.imageBlobUrls.push(url);
+      const img = document.createElement('img');
+      img.src = url;
+      img.title = (post.caption || '').slice(0, 120);
+      ph.appendChild(img);
+    } else {
+      ph.textContent = '🖼️';
+    }
+    grid.appendChild(ph);
+  }
+  if (!grid.children.length) grid.innerHTML = '<span class="sub">לא נמצאו תמונות בייצוא</span>';
+  $('contentCard').classList.toggle('hidden', !S.posts.length);
+
+  // likes
+  $('likedList').innerHTML = S.topLiked
+    .map(([u, c]) => `<a class="chip${c > 3 ? ' hot' : ''}" target="_blank" rel="noopener" href="https://www.instagram.com/${u}">${u} · ${c}</a>`)
+    .join('');
+  $('likesCard').classList.toggle('hidden', !S.topLiked.length);
+
+  $('dashboard').classList.remove('hidden');
+  $('dashboard').scrollIntoView({ behavior: 'smooth' });
+}
+
+/* ---------- upload wiring ---------- */
+const dz = $('dropzone');
+dz.addEventListener('click', () => $('fileInput').click());
+$('fileInput').addEventListener('change', e => handleFiles([...e.target.files]));
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('drag');
+  handleFiles([...e.dataTransfer.files].filter(f => f.name.endsWith('.zip')));
+});
+
+async function handleFiles(files) {
+  if (!files.length) { setStatus('לא נבחר קובץ ZIP', true); return; }
+  try { await parseAll(files); }
+  catch (err) { console.error(err); setStatus('שגיאה בקריאת הקובץ: ' + err.message, true); }
+}
+
+$('demoBtn').addEventListener('click', async () => {
+  try {
+    setStatus('טוען חשבון לדוגמה...');
+    const res = await fetch('fixture/sample-export.zip');
+    if (!res.ok) throw new Error('קובץ הדוגמה לא נמצא');
+    await parseAll([await res.arrayBuffer()]);
+  } catch (err) { console.error(err); setStatus('שגיאה: ' + err.message, true); }
+});
+
+/* ---------- AI analysis ---------- */
+$('apiKey').value = localStorage.getItem('instamirror_api_key') || '';
+$('direction').value = localStorage.getItem('instamirror_direction') || '';
+
+const SYSTEM_PROMPT = `אתה יועץ מותג אישי חד, מנוסה וישיר. אתה מקבל נתונים מלאים מחשבון אינסטגרם של המשתמש: ביו, כיתובי פוסטים, האשטגים, נתוני עוקבים, שעות פרסום, החשבונות שהוא הכי אוהב, ולפעמים גם תמונות מהפיד.
+כתוב ניתוח בעברית, בגוף שני, חם אבל בלי חנופה ובלי קלישאות. בסס כל טענה על הנתונים, וצטט כיתוב או נתון ספציפי כשזה מחזק את הנקודה.
+מבנה התשובה, בדיוק בכותרות האלה (Markdown):
+## מה רואים מבחוץ
+## התכונות שעולות מהתוכן שלך
+## מה אתה מנסה לשדר, ומה באמת עובר
+## עמודי התוכן שלך
+## פערים והזדמנויות
+## תוכנית פעולה: 5 צעדים
+אם המשתמש ציין לאן הוא רוצה להתפתח, תוכנית הפעולה צריכה להוביל בדיוק לשם. אם לא ציין, הצע כיוון טבעי שנשען על החוזקות שעולות מהנתונים, וכתוב במפורש שזו ההצעה שלך.
+אל תשתמש בקו מפריד ארוך (em dash) בטקסט.`;
+
+function buildAnalysisText() {
+  const direction = $('direction').value.trim();
+  const lines = [];
+  lines.push('נתוני חשבון האינסטגרם שלי:');
+  lines.push(`שם משתמש: ${S.profile.username || 'לא ידוע'} | שם: ${S.profile.name || ''}`);
+  if (S.profile.bio) lines.push(`ביו: ${S.profile.bio}`);
+  lines.push(`פוסטים: ${S.posts.length} | עוקבים: ${S.followers.length} | עוקב אחרי: ${S.following.length} | הדדיים: ${S.mutualCount} | סטוריז: ${S.storiesCount} | לייקים שנתתי: ${S.likes.length} | תגובות שכתבתי: ${S.commentsCount}`);
+  const years = Object.entries(S.byYear).sort().map(([y, c]) => `${y}: ${c}`).join(', ');
+  if (years) lines.push(`פוסטים לפי שנה: ${years}`);
+  if (S.topTags.length) lines.push(`האשטגים מובילים: ${S.topTags.map(([t, c]) => `${t}(${c})`).join(' ')}`);
+  if (S.topWords.length) lines.push(`מילים חוזרות: ${S.topWords.map(([w, c]) => `${w}(${c})`).join(', ')}`);
+  if (S.topLiked.length) lines.push(`חשבונות שאני הכי מלייק: ${S.topLiked.map(([u, c]) => `${u}(${c})`).join(', ')}`);
+  lines.push('');
+  lines.push('הכיתובים האחרונים שלי (מהחדש לישן):');
+  for (const post of S.posts.slice(0, 50)) {
+    if (!post.caption.trim()) continue;
+    const d = post.ts ? new Date(post.ts * 1000).toLocaleDateString('he-IL') : '';
+    lines.push(`- [${d}] ${post.caption.replace(/\s+/g, ' ').slice(0, 200)}`);
+  }
+  lines.push('');
+  lines.push(direction
+    ? `הכיוון שאני רוצה להתפתח אליו: ${direction}`
+    : 'לא ציינתי כיוון ספציפי, הצע לי אחד.');
+  return lines.join('\n');
+}
+
+function loadImg(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+async function resizedBase64(blobUrl) {
+  const img = await loadImg(blobUrl);
+  const scale = Math.min(1, 512 / Math.max(img.width, img.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(img.width * scale));
+  canvas.height = Math.max(1, Math.round(img.height * scale));
+  canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+}
+
+function renderMd(src) {
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const inline = s => s.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/(^|[^*])\*([^*]+)\*/g, '$1<i>$2</i>');
+  let html = '', inUl = false, inOl = false;
+  const closeLists = () => { if (inUl) { html += '</ul>'; inUl = false; } if (inOl) { html += '</ol>'; inOl = false; } };
+  for (const line of esc(src).split('\n')) {
+    if (/^\s*[-•*]\s+/.test(line)) {
+      if (!inUl) { closeLists(); html += '<ul>'; inUl = true; }
+      html += '<li>' + inline(line.replace(/^\s*[-•*]\s+/, '')) + '</li>'; continue;
+    }
+    if (/^\s*\d+[.)]\s+/.test(line)) {
+      if (!inOl) { closeLists(); html += '<ol>'; inOl = true; }
+      html += '<li>' + inline(line.replace(/^\s*\d+[.)]\s+/, '')) + '</li>'; continue;
+    }
+    closeLists();
+    const h = line.match(/^(#{1,4})\s+(.*)/);
+    if (h) { const lvl = Math.min(h[1].length + 1, 5); html += `<h${lvl}>${inline(h[2])}</h${lvl}>`; continue; }
+    if (line.trim()) html += '<p>' + inline(line) + '</p>';
+  }
+  closeLists();
+  return html;
+}
+
+$('analyzeBtn').addEventListener('click', async () => {
+  const apiKey = $('apiKey').value.trim();
+  const errEl = $('aiErr'), out = $('aiOut'), statusEl = $('aiStatus'), btn = $('analyzeBtn');
+  errEl.textContent = '';
+  if (!S) { errEl.textContent = 'קודם מעלים את קובץ הייצוא למעלה'; return; }
+  if (!apiKey) { errEl.textContent = 'צריך מפתח API של Anthropic כדי להריץ את הניתוח'; return; }
+  localStorage.setItem('instamirror_api_key', apiKey);
+  localStorage.setItem('instamirror_direction', $('direction').value);
+
+  btn.disabled = true;
+  out.classList.remove('hidden');
+  out.innerHTML = '';
+
+  try {
+    statusEl.textContent = 'מכין את הנתונים...';
+    const content = [];
+    if ($('includeImages').checked && (S.imageBlobUrls || []).length) {
+      for (const url of S.imageBlobUrls.slice(0, 8)) {
+        try {
+          content.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: await resizedBase64(url) } });
+        } catch { /* skip broken image */ }
+      }
+    }
+    content.push({ type: 'text', text: buildAnalysisText() });
+
+    statusEl.textContent = 'Claude חושב עליך...';
+    const { default: Anthropic } = await import('https://esm.run/@anthropic-ai/sdk');
+    const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
+
+    let md = '';
+    const stream = client.messages.stream({
+      model: 'claude-opus-4-8',
+      max_tokens: 8000,
+      thinking: { type: 'adaptive' },
+      system: SYSTEM_PROMPT,
+      messages: [{ role: 'user', content }],
+    });
+    stream.on('text', t => { md += t; out.innerHTML = renderMd(md); });
+    const finalMsg = await stream.finalMessage();
+    if (finalMsg.stop_reason === 'refusal') {
+      errEl.textContent = 'הבקשה נדחתה על ידי מסנני הבטיחות. נסו שוב בלי תמונות.';
+    }
+    statusEl.textContent = '';
+  } catch (err) {
+    console.error(err);
+    statusEl.textContent = '';
+    if (err && err.status === 401) errEl.textContent = 'מפתח ה-API לא תקין. בדקו אותו ב-console.anthropic.com';
+    else if (err && err.status === 429) errEl.textContent = 'יותר מדי בקשות. חכו רגע ונסו שוב.';
+    else if (err && err.status === 400) errEl.textContent = 'שגיאה בבקשה: ' + err.message;
+    else errEl.textContent = 'שגיאה: ' + (err.message || err);
+  } finally {
+    btn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

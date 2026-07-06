@@ -758,6 +758,7 @@ const PROVIDERS = {
   gemini: {
     needsKey: true, images: true, ph: 'AIza...',
     hint: '(<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">מפתח חינמי תוך חצי דקה</a>, בלי כרטיס אשראי. נשמר רק בדפדפן שלך)',
+    note: 'אם מופיעה שגיאת מכסה (quota), למפתח אין כרגע מכסה חינמית פנויה: חכו דקה, נסו שוב, או עברו למסלול של Puter.',
   },
   claude: {
     needsKey: true, images: true, ph: 'sk-ant-...',
@@ -905,6 +906,38 @@ async function runPuter(text, images, onText, onReset) {
   throw new Error('המסלול החינמי נכשל (' + msg + '). נסו שוב, או עברו ל-Gemini עם מפתח חינמי.');
 }
 
+const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
+// ask Google which models this key can actually use, newest flash first
+async function geminiCandidates(apiKey) {
+  const fallback = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+  try {
+    const res = await fetch(GEMINI_BASE + '/models?pageSize=200&key=' + encodeURIComponent(apiKey));
+    if (res.status === 400 || res.status === 403) {
+      const j = await res.json().catch(() => ({}));
+      const err = new Error((j.error && j.error.message) || 'המפתח לא תקין');
+      err.fatal = true;
+      throw err;
+    }
+    if (!res.ok) return fallback;
+    const j = await res.json();
+    const names = (j.models || [])
+      .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+      .map(m => (m.name || '').replace(/^models\//, ''));
+    const notSpecial = n => !/(image|tts|audio|live|embed|thinking|8b)/i.test(n);
+    let flash = names.filter(n => /flash/i.test(n) && notSpecial(n) && !/(preview|exp)/i.test(n));
+    if (!flash.length) flash = names.filter(n => /flash/i.test(n) && notSpecial(n));
+    const rank = (a, b) => (b.includes('latest') - a.includes('latest')) || b.localeCompare(a, undefined, { numeric: true });
+    flash.sort(rank);
+    const pro = names.filter(n => /pro/i.test(n) && notSpecial(n) && !/(preview|exp|vision)/i.test(n)).sort(rank);
+    const list = [...new Set([...flash, ...pro.slice(0, 2), ...fallback])];
+    return list.length ? list : fallback;
+  } catch (e) {
+    if (e && e.fatal) throw e;
+    return fallback;
+  }
+}
+
 async function runGemini(apiKey, text, images) {
   const parts = [{ text }];
   for (const data of images) parts.push({ inline_data: { mime_type: 'image/jpeg', data } });
@@ -912,16 +945,19 @@ async function runGemini(apiKey, text, images) {
     system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
     contents: [{ role: 'user', parts }],
   });
+  const candidates = (await geminiCandidates(apiKey)).slice(0, 6);
   let lastErr = 'לא נמצא מודל Gemini זמין';
-  for (const model of ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']) {
+  let quotaHits = 0;
+  for (const model of candidates) {
     const res = await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(apiKey),
+      GEMINI_BASE + '/models/' + encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(apiKey),
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body },
     );
     if (res.status === 404) continue;
     const j = await res.json().catch(() => ({}));
     if (!res.ok) {
       lastErr = (j.error && j.error.message) || ('HTTP ' + res.status);
+      if (res.status === 429) { quotaHits++; continue; } // maybe another model still has free quota
       if (res.status === 400 || res.status === 403) break; // bad key: other models won't help
       continue;
     }
@@ -929,6 +965,9 @@ async function runGemini(apiKey, text, images) {
       .map(p => p.text || '').join('');
     if (out) return out;
     lastErr = 'תשובה ריקה מהמודל';
+  }
+  if (quotaHits) {
+    throw new Error('המכסה החינמית של Gemini במפתח הזה מוצתה או לא פעילה כרגע. מה שעובד: לעבור למסלול החינמי בלי מפתח (Puter) למעלה, לחכות דקה ולנסות שוב, או ליצור מפתח חדש בפרויקט Google אחר. (הודעת גוגל: ' + lastErr.split('.')[0] + ')');
   }
   throw new Error(lastErr);
 }

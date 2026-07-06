@@ -277,6 +277,7 @@
         <option value="claude">Claude של Anthropic (מפתח API בתשלום)</option>
       </select>
       <div class="sub" id="providerNote" style="margin-top:8px"></div>
+      <div class="sub" id="bridgeStatus" style="margin-top:8px"></div>
 
       <div id="keyRow">
         <label>מפתח API <span class="opt" id="keyHint"></span></label>
@@ -788,7 +789,7 @@ const PROVIDERS = {
   },
   claudemax: {
     needsKey: false, images: true,
-    note: 'משתמש במנוי ה-Claude שלך (Pro/Max) דרך Claude Code שמותקן על המחשב. עובד כשהאתר רץ מקומית: לוחצים פעמיים על InstaMirror.command בתיקיית הפרויקט (או מריצים node serve.js) ונכנסים אל localhost:8788. הניתוח כולל את התמונות.',
+    note: 'משתמש במנוי ה-Claude שלך (Pro/Max) דרך Claude Code שמותקן על המחשב, כולל ניתוח התמונות.',
   },
   claude: {
     needsKey: true, images: true, ph: 'sk-ant-...',
@@ -812,7 +813,28 @@ function providerChanged(save = true) {
     $('apiKey').value = localStorage.getItem('instamirror_key_' + p) || '';
   }
   if (p === 'puter') ensurePuterScript().catch(() => {});
+  $('bridgeStatus').innerHTML = '';
+  if (p === 'claudemax') checkBridge();
   if (save) localStorage.setItem('instamirror_provider', p);
+}
+
+const IS_LOCAL = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+const BRIDGE_BASE = IS_LOCAL ? '' : 'http://localhost:8788';
+async function checkBridge() {
+  const el = $('bridgeStatus');
+  el.textContent = 'בודק אם הגשר המקומי פעיל...';
+  let ok = false;
+  try { ok = (await fetchT(BRIDGE_BASE + '/api/claude/ping', {}, 3000)).ok; } catch { /* unreachable */ }
+  if ($('provider').value !== 'claudemax') return;
+  if (ok) {
+    el.innerHTML = '🟢 הגשר המקומי פעיל. פשוט לוחצים "נתח אותי".';
+  } else if (!IS_LOCAL) {
+    el.innerHTML = '🔴 מהאתר הזה הדפדפן לא מגיע לגשר. '
+      + '<a class="btn ghost" style="padding:6px 14px" href="http://localhost:8788">🚀 פתחו את הגרסה המקומית</a>'
+      + ' (אותו אתר בדיוק, שם זה עובד).';
+  } else {
+    el.innerHTML = '🔴 הגשר המקומי לא רץ. לחיצה כפולה על InstaMirror.command בתיקיית הפרויקט מפעילה אותו, או install-autostart.command כדי שירוץ תמיד.';
+  }
 }
 $('provider').addEventListener('change', () => providerChanged());
 $('provider').value = localStorage.getItem('instamirror_provider') || 'puter';
@@ -932,14 +954,15 @@ async function runPuter(text, images, onText, onReset, onStatus) {
 }
 
 async function runClaudeMax(text, images, onText) {
-  const local = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-  const base = local ? '' : 'http://localhost:8788';
   let alive = false;
-  try { alive = (await fetchT(base + '/api/claude/ping', {}, 4000)).ok; } catch { /* not running */ }
+  try { alive = (await fetchT(BRIDGE_BASE + '/api/claude/ping', {}, 4000)).ok; } catch { /* not running */ }
   if (!alive) {
-    throw new Error('הגשר המקומי ל-Claude Code לא זמין. לוחצים פעמיים על InstaMirror.command בתיקיית הפרויקט (או מריצים node serve.js בטרמינל), ואז נכנסים לאתר בכתובת http://localhost:8788 ומנסים שוב.');
+    checkBridge();
+    throw new Error(IS_LOCAL
+      ? 'הגשר המקומי ל-Claude Code לא רץ. לחיצה כפולה על InstaMirror.command מפעילה אותו.'
+      : 'מהאתר הזה אין גישה לגשר המקומי. לחצו על הכפתור "פתחו את הגרסה המקומית" שמופיע למעלה ונסו שוב שם.');
   }
-  const res = await fetch(base + '/api/claude', {
+  const res = await fetch(BRIDGE_BASE + '/api/claude', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ system: SYSTEM_PROMPT, text, images }),

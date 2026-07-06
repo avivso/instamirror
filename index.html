@@ -213,6 +213,7 @@
     <section class="card">
       <h2>📊 המספרים שלך</h2>
       <div class="stat-grid" id="statGrid"></div>
+      <p class="sub" style="margin-top:12px">המספרים לפי קובץ הייצוא של אינסטגרם. הספירה באפליקציה יכולה להיות שונה מעט: שם רילז נספרים יחד עם הפוסטים, וחשבונות כפולים או מוסתרים מסוננים.</p>
     </section>
 
     <section class="card" id="followCard">
@@ -253,6 +254,7 @@
       <div class="chips" id="wordList"></div>
       <div style="margin-top:16px"><b>מהפיד שלך</b></div>
       <div class="media-grid" id="mediaGrid"></div>
+      <div class="sub" id="mediaNote" style="margin-top:8px"></div>
     </section>
 
     <section class="card" id="likesCard">
@@ -282,7 +284,7 @@
 
       <div class="check" id="imagesRow">
         <input type="checkbox" id="includeImages" checked>
-        <label for="includeImages" style="margin:0; font-weight:400">לצרף לניתוח עד 8 תמונות אחרונות מהפיד (ניתוח מדויק יותר)</label>
+        <label for="includeImages" style="margin:0; font-weight:400">לצרף לניתוח עד 16 תמונות מהפיד, וה-AI ינתח גם את התמונות עצמן</label>
       </div>
 
       <div class="row" style="margin-top:18px">
@@ -361,13 +363,21 @@ async function readJson(path) {
   progress.set(34 + Math.min(1, jsonDone / jsonTotal) * 24, 'מנתח את הנתונים...');
   return data;
 }
+function igUsernameFromUrl(s) {
+  const m = /instagram\.com\/(?:_u\/)?([A-Za-z0-9._]+)/.exec(s || '');
+  return m ? m[1] : '';
+}
 function relPerson(item) {
   const sld = item.string_list_data && item.string_list_data[0];
-  const username = (sld && sld.value) || item.title || '';
+  let username = (sld && sld.value) || item.title || '';
+  const href = (sld && sld.href) || '';
+  // some exports put the profile URL in value instead of the username
+  if (/^https?:/i.test(username)) username = igUsernameFromUrl(username) || igUsernameFromUrl(href);
+  if (!username) username = igUsernameFromUrl(href);
   if (!username) return null;
   return {
     username,
-    href: (sld && sld.href) || 'https://www.instagram.com/' + username,
+    href: href || 'https://www.instagram.com/' + username,
     ts: (sld && sld.timestamp) || 0,
   };
 }
@@ -419,7 +429,11 @@ function classify(path, data) {
 
   if (Array.isArray(data) && data.length) {
     const first = data[0] || {};
-    if (Array.isArray(first.media)) { addPosts(data); return; }
+    if (Array.isArray(first.media)) {
+      // archived / deleted content isn't part of the visible feed
+      if (!/archived|deleted|recently|trash/.test(b)) addPosts(data);
+      return;
+    }
     if (first.string_list_data) {
       if (/^following\.json$/.test(b)) S.following.push(...data.map(relPerson).filter(Boolean));
       else if (/^followers(_\d+)?\.json$/.test(b)) S.followers.push(...data.map(relPerson).filter(Boolean));
@@ -501,6 +515,19 @@ async function parseAll(files) {
     catch (err) { jsonDone++; console.warn('InstaMirror: skipping unreadable file', p, err); }
   }
   S.posts.sort((a, b) => b.ts - a.ts);
+
+  // exports can repeat people across files; keep each username once
+  const dedupePeople = list => {
+    const seen = new Set();
+    return list.filter(p => {
+      const k = p.username.toLowerCase();
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  };
+  S.followers = dedupePeople(S.followers);
+  S.following = dedupePeople(S.following);
 
   const hasData = S.posts.length || S.followers.length || S.following.length || S.likes.length || S.profile.username;
   if (!hasData) { progress.hide(); showDiagnostics(); return; }
@@ -649,30 +676,41 @@ async function renderDashboard() {
     ? S.topWords.map(([w, c]) => `<span class="chip">${w} · ${c}</span>`).join('')
     : '<span class="sub">אין מספיק טקסט</span>';
 
-  // media grid: latest 12 image posts
+  // media grid: every image from every post, carousels included
   const grid = $('mediaGrid');
   grid.innerHTML = '';
+  $('mediaNote').textContent = '';
   S.imageBlobUrls = [];
-  for (const post of S.posts.slice(0, 24)) {
-    if (S.imageBlobUrls.length >= 12) break;
-    const uri = post.media.find(u => IMG_RE.test(u));
-    if (!uri) continue;
-    const url = await mediaBlobUrl(uri);
-    const ph = document.createElement('div');
-    ph.className = 'ph';
-    if (url) {
-      S.imageBlobUrls.push(url);
+  const MAX_GRID = 60;
+  let totalImgs = 0, shownImgs = 0, videoCount = 0;
+  for (const post of S.posts) {
+    for (const uri of post.media) {
+      if (/\.(mp4|mov|avi)(\?|$)/i.test(uri)) { videoCount++; continue; }
+      if (!IMG_RE.test(uri) && !/^https?:/i.test(uri)) continue;
+      totalImgs++;
+      if (shownImgs >= MAX_GRID) continue; // keep counting past the cap
+      const src = /^https?:/i.test(uri) ? uri : await mediaBlobUrl(uri);
+      if (!src) continue;
+      // remote images can't be re-encoded for the AI (canvas taint), local blobs can
+      if (S.imageBlobUrls.length < 16 && src.startsWith('blob:')) S.imageBlobUrls.push(src);
+      const ph = document.createElement('div');
+      ph.className = 'ph';
       const img = document.createElement('img');
-      img.src = url;
+      img.loading = 'lazy';
+      img.src = src;
       img.title = (post.caption || '').slice(0, 120);
       ph.appendChild(img);
-    } else {
-      ph.textContent = '🖼️';
+      grid.appendChild(ph);
+      shownImgs++;
+      progress.set(60 + Math.min(1, shownImgs / 24) * 38, 'טוען תמונות...');
     }
-    grid.appendChild(ph);
-    progress.set(60 + Math.min(1, grid.children.length / 12) * 38, 'טוען תמונות...');
   }
   if (!grid.children.length) grid.innerHTML = '<span class="sub">לא נמצאו תמונות בייצוא</span>';
+  const noteParts = [];
+  if (totalImgs > shownImgs) noteParts.push('מציג ' + fmt(shownImgs) + ' מתוך ' + fmt(totalImgs) + ' תמונות');
+  else if (totalImgs) noteParts.push(fmt(totalImgs) + ' תמונות');
+  if (videoCount) noteParts.push(fmt(videoCount) + ' סרטונים (לא מוצגים בגריד)');
+  $('mediaNote').textContent = noteParts.join(' · ');
   $('contentCard').classList.toggle('hidden', !S.posts.length);
 
   // likes
@@ -714,8 +752,8 @@ $('demoBtn').addEventListener('click', async () => {
 /* ---------- AI analysis ---------- */
 const PROVIDERS = {
   puter: {
-    needsKey: false, images: false,
-    note: 'בלי מפתח ובלי תשלום: הניתוח רץ דרך Puter. בשימוש הראשון יקפוץ חלון הרשמה קצר וחינמי. במסלול הזה נשלח רק טקסט, בלי תמונות.',
+    needsKey: false, images: true,
+    note: 'בלי מפתח ובלי תשלום: הניתוח רץ דרך Puter. בשימוש הראשון יקפוץ חלון הרשמה קצר וחינמי. אם ניתוח התמונות נכשל שם, ננסה אוטומטית בלי תמונות.',
   },
   gemini: {
     needsKey: true, images: true, ph: 'AIza...',
@@ -751,6 +789,7 @@ $('direction').value = localStorage.getItem('instamirror_direction') || '';
 
 const SYSTEM_PROMPT = `אתה יועץ מותג אישי חד, מנוסה וישיר. אתה מקבל נתונים מלאים מחשבון אינסטגרם של המשתמש: ביו, כיתובי פוסטים, האשטגים, נתוני עוקבים, שעות פרסום, החשבונות שהוא הכי אוהב, ולפעמים גם תמונות מהפיד.
 כתוב ניתוח בעברית, בגוף שני, חם אבל בלי חנופה ובלי קלישאות. בסס כל טענה על הנתונים, וצטט כיתוב או נתון ספציפי כשזה מחזק את הנקודה.
+אם צורפו תמונות, נתח אותן באופן פעיל ולעומק: מה מצולם בהן, סגנון הצילום, צבעוניות, אווירה, עקביות ויזואלית בין התמונות, והאם הוויזואל מחזק או סותר את המסר של הטקסט. שלב את מסקנות ניתוח התמונות בכל הסעיפים.
 מבנה התשובה, בדיוק בכותרות האלה (Markdown):
 ## מה רואים מבחוץ
 ## התכונות שעולות מהתוכן שלך
@@ -828,7 +867,7 @@ function renderMd(src) {
   return html;
 }
 
-async function runPuter(text, onText, onReset) {
+async function runPuter(text, images, onText, onReset) {
   if (!window.puter) {
     await new Promise((resolve, reject) => {
       const s = document.createElement('script');
@@ -839,12 +878,21 @@ async function runPuter(text, onText, onReset) {
     });
   }
   const prompt = SYSTEM_PROMPT + '\n\n---\n\n' + text;
-  const attempts = [{ model: 'claude-sonnet-4' }, { model: 'gpt-4o-mini' }, {}];
+  const dataUrls = (images || []).map(b64 => 'data:image/jpeg;base64,' + b64);
+  const models = ['claude-sonnet-4', 'gpt-4o-mini', null];
+  // with-images attempts first, then text-only fallbacks
+  const attempts = [];
+  if (dataUrls.length) for (const model of models) attempts.push({ model, withImages: true });
+  for (const model of models) attempts.push({ model, withImages: false });
   let lastErr = null;
-  for (const opts of attempts) {
+  for (const at of attempts) {
     onReset();
     try {
-      const resp = await puter.ai.chat(prompt, { ...opts, stream: true });
+      const opts = { stream: true };
+      if (at.model) opts.model = at.model;
+      const resp = at.withImages
+        ? await puter.ai.chat(prompt, dataUrls, false, opts)
+        : await puter.ai.chat(prompt, opts);
       let got = false;
       for await (const part of resp) {
         const t = (part && part.text) || '';
@@ -910,15 +958,16 @@ $('analyzeBtn').addEventListener('click', async () => {
     statusEl.textContent = 'מכין את הנתונים...';
     const images = [];
     if (cfg.images && $('includeImages').checked && (S.imageBlobUrls || []).length) {
-      for (const url of S.imageBlobUrls.slice(0, 8)) {
+      for (const url of S.imageBlobUrls.slice(0, 16)) {
         try { images.push(await resizedBase64(url)); } catch { /* skip broken image */ }
       }
     }
-    const text = buildAnalysisText();
+    let text = buildAnalysisText();
+    if (images.length) text += '\n\nמצורפות ' + images.length + ' תמונות מהפיד שלי. נתח אותן לעומק כחלק מהניתוח.';
 
     statusEl.textContent = 'ה-AI חושב עליך... (יכול לקחת עד דקה)';
     if (provider === 'puter') {
-      await runPuter(text, onText, onReset);
+      await runPuter(text, images, onText, onReset);
     } else if (provider === 'gemini') {
       onText(await runGemini(apiKey, text, images));
     } else {

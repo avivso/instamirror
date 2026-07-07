@@ -158,24 +158,45 @@
   </header>
 
   <section class="card" id="setupCard">
-    <h2><span class="num">1</span>מורידים את המידע מאינסטגרם</h2>
+    <h2><span class="num">1</span>מביאים את המידע מאינסטגרם</h2>
+    <p class="sub" style="margin-bottom:16px">אי אפשר לחבר את אינסטגרם ישירות (מטא סגרה את זה), אז מביאים את הקובץ הרשמי שאינסטגרם עצמה נותנת. זה שלב חד-פעמי, ורק אחריו הכל אוטומטי.</p>
+
+    <div class="row" style="margin-bottom:16px">
+      <a class="btn" href="https://accountscenter.instagram.com/info_and_permissions/dyi/" target="_blank" rel="noopener">📥 פותחים את עמוד הייצוא של אינסטגרם</a>
+    </div>
+
     <ol class="steps">
-      <li>נכנסים אל <a href="https://accountscenter.instagram.com/info_and_permissions/dyi/" target="_blank" rel="noopener">הורדת המידע שלך במרכז החשבונות</a> (או באפליקציה: הגדרות ← מרכז החשבונות ← המידע וההרשאות שלך ← הורדת המידע שלך).</li>
-      <li>בוחרים <b>הורדה או העברה של מידע</b> ← החשבון שלך ← <b>כל המידע הזמין</b> (אם בוחרים "חלק מהמידע", חובה לסמן: פוסטים, עוקבים ונעקבים, לייקים, תגובות ופרטים אישיים).</li>
-      <li>שלוש הגדרות קריטיות בבקשה: פורמט <b>JSON</b> (לא HTML), טווח תאריכים <b>מאז ומתמיד</b>, איכות מדיה בינונית.</li>
-      <li>כשמגיע המייל מאינסטגרם, מורידים את קובץ ה-ZIP ומעלים אותו כאן. אין צורך לחלץ אותו.</li>
+      <li><b>הורדה או העברה של מידע</b> ← בוחרים את חשבון האינסטגרם ← <b>כל המידע הזמין</b>.</li>
+      <li>מגדירים את שלוש האפשרויות שבתיבה למטה, ומאשרים את הבקשה.</li>
+      <li>אינסטגרם שולחת מייל עם קובץ ZIP (בין כמה דקות ליומיים). מורידים אותו ומעלים כאן, בלי לחלץ.</li>
     </ol>
 
-    <h2 style="margin-top:22px"><span class="num">2</span>מעלים את הקובץ</h2>
+    <div style="margin-top:16px; background:var(--card2); border:1px solid var(--line); border-radius:14px; padding:16px">
+      <div style="font-weight:600; margin-bottom:10px">שלוש ההגדרות שחייבים לוודא בבקשה:</div>
+      <div style="display:flex; gap:10px; margin-bottom:8px"><span>📄</span><span><b>פורמט: JSON</b> <span class="sub">(לא HTML. זו הטעות הכי נפוצה)</span></span></div>
+      <div style="display:flex; gap:10px; margin-bottom:8px"><span>🗓️</span><span><b>טווח תאריכים: מאז ומתמיד</b> <span class="sub">(אחרת חסרים פוסטים ועוקבים)</span></span></div>
+      <div style="display:flex; gap:10px"><span>🖼️</span><span><b>איכות מדיה: בינונית</b> <span class="sub">(מספיק, ומקטין את הקובץ)</span></span></div>
+    </div>
+
+    <h2 style="margin-top:26px"><span class="num">2</span>מעלים את הקובץ</h2>
     <div class="dropzone" id="dropzone">
       <div class="big">📦</div>
       <div>גוררים לכאן את קובץ ה-ZIP, או לוחצים לבחירה</div>
-      <div class="sub">אפשר לבחור כמה קבצים אם הייצוא פוצל</div>
+      <div class="sub">אם אינסטגרם פיצלה לכמה קבצים, בוחרים את כולם ביחד</div>
       <input type="file" id="fileInput" accept=".zip" multiple class="hidden">
     </div>
     <div class="row" style="margin-top:14px; justify-content:center">
       <button class="btn ghost" id="demoBtn">🎬 נסו עם חשבון לדוגמה</button>
     </div>
+
+    <details style="margin-top:16px">
+      <summary class="sub" style="cursor:pointer">לא עבד? קיבלתם שגיאה או רק תמונות?</summary>
+      <div class="sub" style="margin-top:10px; line-height:1.7">
+        <b>קיבלתם רק תמונות בלי נתונים:</b> הבקשה לא כללה את קטגוריות המידע. בקשו מחדש עם "כל המידע הזמין".<br>
+        <b>שגיאת פורמט:</b> ביקשתם HTML. חובה JSON.<br>
+        <b>מספרים חסרים:</b> טווח התאריכים לא היה "מאז ומתמיד", או שאינסטגרם פיצלה לכמה קבצים והעליתם רק אחד. העלו את כולם ביחד.
+      </div>
+    </details>
   </section>
 
   <div id="progressWrap" class="hidden">
@@ -228,6 +249,12 @@
           <div class="chips" id="fansList"></div>
         </div>
       </div>
+    </section>
+
+    <section class="card hidden" id="relCard">
+      <h2>🔗 עוד על הקשרים שלך</h2>
+      <div class="stat-grid" id="relStats" style="margin-bottom:16px"></div>
+      <div id="relLists"></div>
     </section>
 
     <section class="card" id="activityCard">
@@ -392,7 +419,7 @@ function mapVal(smd, ...keys) {
 // folders that are huge or never contain the data we need
 const SKIP_RE = /(^|\/)(messages|ads_information|apps_and_websites_off_of_instagram|logged_information|preferences|device_information|security_and_login_information)\//i;
 // filenames we always read first, regardless of folder
-const PRIMARY_NAMES = /^(followers(_\d+)?|following|posts(_\d+)?|liked_posts|stories|reels|post_comments(_\d+)?|personal_information|profile_information)\.json$/;
+const PRIMARY_NAMES = /^(followers(_\d+)?|following|posts(_\d+)?|liked_posts|stories|reels|post_comments(_\d+)?|personal_information|profile_information|pending_follow_requests|recently_unfollowed_(profiles|accounts)|close_friends|blocked_profiles|following_hashtags)\.json$/;
 function baseName(p) { return p.split('/').pop().toLowerCase(); }
 
 function addPosts(arr) {
@@ -423,6 +450,13 @@ function classify(path, data) {
   }
   if (data.relationships_followers) { S.followers.push(...data.relationships_followers.map(relPerson).filter(Boolean)); return; }
   if (data.relationships_following) { S.following.push(...data.relationships_following.map(relPerson).filter(Boolean)); return; }
+  if (data.relationships_follow_requests_sent) { S.pendingSent.push(...data.relationships_follow_requests_sent.map(relPerson).filter(Boolean)); return; }
+  if (data.relationships_unfollowed_users || data.relationships_recently_unfollowed_users) {
+    S.recentlyUnfollowed.push(...(data.relationships_unfollowed_users || data.relationships_recently_unfollowed_users).map(relPerson).filter(Boolean));
+    return;
+  }
+  if (data.relationships_close_friends) { S.closeFriends.push(...data.relationships_close_friends.map(relPerson).filter(Boolean)); return; }
+  if (data.relationships_blocked_users) { S.blocked.push(...data.relationships_blocked_users.map(relPerson).filter(Boolean)); return; }
   if (data.likes_media_likes) { for (const it of data.likes_media_likes) if (it.title) S.likes.push(it.title); return; }
   if (data.ig_stories) { S.storiesCount += data.ig_stories.length; return; }
   if (data.ig_reels_media || data.ig_reels) { S.reelsCount += (data.ig_reels_media || data.ig_reels).length; return; }
@@ -501,6 +535,7 @@ async function parseAll(files) {
   S = {
     profile: {}, followers: [], following: [], posts: [],
     likes: [], commentsCount: 0, storiesCount: 0, reelsCount: 0,
+    pendingSent: [], recentlyUnfollowed: [], closeFriends: [], blocked: [],
   };
 
   // scan every JSON in the export (known filenames first, then everything
@@ -530,6 +565,10 @@ async function parseAll(files) {
   };
   S.followers = dedupePeople(S.followers);
   S.following = dedupePeople(S.following);
+  S.pendingSent = dedupePeople(S.pendingSent);
+  S.recentlyUnfollowed = dedupePeople(S.recentlyUnfollowed);
+  S.closeFriends = dedupePeople(S.closeFriends);
+  S.blocked = dedupePeople(S.blocked);
 
   const hasData = S.posts.length || S.followers.length || S.following.length || S.likes.length || S.profile.username;
   if (!hasData) { progress.hide(); showDiagnostics(); return; }
@@ -653,6 +692,25 @@ async function renderDashboard() {
   fillChips($('notBackList'), S.notBack);
   fillChips($('fansList'), S.fans);
   $('followCard').classList.toggle('hidden', !S.followers.length && !S.following.length);
+
+  // extra relationships (from the export: pending requests, recently unfollowed, close friends, blocked)
+  const relStats = [
+    ['בקשות מעקב ששלחת וממתינות', S.pendingSent.length],
+    ['הפסקת לעקוב לאחרונה', S.recentlyUnfollowed.length],
+    ['חברים קרובים', S.closeFriends.length],
+    ['חסומים', S.blocked.length],
+  ].filter(([, v]) => v > 0);
+  $('relStats').innerHTML = relStats
+    .map(([l, v]) => `<div class="stat"><div class="v">${fmt(v)}</div><div class="l">${l}</div></div>`)
+    .join('');
+  const relLists = [];
+  if (S.pendingSent.length) relLists.push(['בקשות מעקב שעדיין ממתינות לאישור', S.pendingSent]);
+  if (S.recentlyUnfollowed.length) relLists.push(['אנשים שהפסקת לעקוב אחריהם לאחרונה', S.recentlyUnfollowed]);
+  $('relLists').innerHTML = relLists.map((_, i) =>
+    `<div style="margin-top:${i ? 16 : 0}px"><b>${relLists[i][0]}</b><div class="chips" id="relList${i}"></div></div>`
+  ).join('');
+  relLists.forEach((pair, i) => fillChips($('relList' + i), pair[1], 60));
+  $('relCard').classList.toggle('hidden', !relStats.length);
 
   // activity charts
   const years = Object.keys(S.byYear).sort();
@@ -866,6 +924,10 @@ function buildAnalysisText() {
   if (S.topTags.length) lines.push(`האשטגים מובילים: ${S.topTags.map(([t, c]) => `${t}(${c})`).join(' ')}`);
   if (S.topWords.length) lines.push(`מילים חוזרות: ${S.topWords.map(([w, c]) => `${w}(${c})`).join(', ')}`);
   if (S.topLiked.length) lines.push(`חשבונות שאני הכי מלייק: ${S.topLiked.map(([u, c]) => `${u}(${c})`).join(', ')}`);
+  if (S.notBack.length) lines.push(`עוקב אחריהם והם לא בחזרה (${S.notBack.length}): ${S.notBack.slice(0, 30).map(p => p.username).join(', ')}`);
+  if (S.pendingSent.length) lines.push(`בקשות מעקב ששלחתי וממתינות: ${S.pendingSent.length}`);
+  if (S.recentlyUnfollowed.length) lines.push(`הפסקתי לעקוב לאחרונה אחרי: ${S.recentlyUnfollowed.slice(0, 20).map(p => p.username).join(', ')}`);
+  if (S.closeFriends.length) lines.push(`חברים קרובים: ${S.closeFriends.length}`);
   lines.push('');
   lines.push('הכיתובים האחרונים שלי (מהחדש לישן):');
   for (const post of S.posts.slice(0, 50)) {
